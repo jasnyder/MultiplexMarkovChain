@@ -25,12 +25,24 @@ def get_node_set(g1,g2,method="union"):
     Returns the set of nodes that have to be considered in counting
     transitions of the Markov chains.  The input for the keyword
     argument `method` controls the method used.
+    g1 and g2 are n-tuples of graphs, where n is the number of layers
+    g1[k] is a graph describing the k-th layer in the multiplex at time t
+    g2[k] is the k-th layer at time t+1
     """
+    num_layers = len(g1)
+    nodes1 = set()
+    nodes2 = set()
+    for k in range(num_layers):
+        for n in g1[k].nodes():
+            nodes1.add(n)
+        for n in g2[k].nodes():
+            nodes2.add(n)
     if (method=="intersection"):
-        nodes = list(set(g1.nodes()) & set(g2.nodes()))
+        node_set = list(nodes1 & nodes2)
     else:
-        nodes = list(set(g1.nodes()) | set(g2.nodes()))
-    return nodes
+        node_set = list(nodes1 | nodes2)
+    
+    return node_set
     
 
 def get_counts(g1, g2, method):
@@ -40,39 +52,46 @@ def get_counts(g1, g2, method):
 
     Parameters
     -----------
-    g1 : nx graph object representing the multiplex at time t
-    g2 : nx graph object representing the multiplex at time (t+1)
+    g1 : list of nx graph objects representing the multiplex at time t
+    g2 : list of nx graph objects representing the multiplex at time (t+1)
 
     Each edge of the graph must have an attribute `state` that is set
-    when the graph is constructed.  The output is an array of size 16
-    that has the counts for (t) to (t+1).
+    when the graph is constructed.  The output is a dictionary giving
+    counts from time t to time (t+1), for each possible pair of joint states.
+    non-existence of an edge is coded as 0 by default.
 
     method : When the set of nodes in g1 is not the same as g2, the
     `method` to be used to find a common set of nodes. Accepts two
     values union or intersect.
-    
+
     Returns
     -------
-    counts : np.array of counts for the transitions
+    counts : dictionary of counts for the transitions
     
     """
     # get the set of nodes to iterate over
-    nodes = get_node_set(g1, g2, method)
+    node_set = get_node_set(g1, g2, method)
+    num_layers = len(g1)
     # Now count the numbers for each transition
-    counts = np.zeros(16, int)
-    for i,n in enumerate(nodes):
-        for m in nodes[i+1:]:
-            if (g1.has_edge(n,m)):
-                #An edge is present, check what is the state
-                prev_state = g1.edge[n][m]["state"]
-            else:
-                prev_state = 0
-            if (g2.has_edge(n,m)):
-                current_state = g2.edge[n][m]["state"]
-            else:
-                current_state = 0
-            transition = prev_state*4 + current_state
-            counts[transition] += 1
+    counts = dict()
+    if g1[0].is_directed():
+        for node1 in node_set:
+            for node2 in node_set: # loop over all ordered pairs
+                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                if ((prev_state,current_state) in counts.keys()):
+                    counts[(prev_state,current_state)] += 1
+                else:
+                    counts[(prev_state,current_state)] = 1
+    else:
+        for index,node1 in enumerate(node_set):
+            for node2 in node_set[index+1:]: # loop over all unordered pairs
+                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                if ((prev_state,current_state) in counts.keys()):
+                    counts[(prev_state,current_state)] += 1
+                else:
+                    counts[(prev_state,current_state)] = 1
     return counts
 
 

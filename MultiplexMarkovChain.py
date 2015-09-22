@@ -9,11 +9,16 @@ handles only 4-state Markov chains (i.e. two layer networks).
 """
 from __future__ import division
 import numpy as np
+import networkx as nx
 from warnings import warn
 
 
-class MarkovChain(object):
+class MarkovChain(nx.DiGraph):
     """
+    Instances of this class contain NetworkX DiGraph objects, whose edges have
+    attributes "counts" and "params", giving observed counts of transitions
+    and inferred transition probabilities, respectively.
+
     A class that computes properties of a Markov chain such as the
     transition parameters and standard deviation. The class assumes a
     uniform prior for the distribution of transition parameters.
@@ -26,11 +31,14 @@ class MarkovChain(object):
     Parameters
     ----------
 
-    counts : Counts for each transition of the Markov chain. Numpy
-    array or list with number of entries matching the number of transitions.
+    counts : Counts for each transition of the Markov chain. Given as a dictionary
+    in the form counts = {(from_state,to_state):count}. For a Multiplex Markov Chain,
+    states themselves will be n-tuples (n = number of layers) whose entries
+    are the states in the individual layers
 
-    num_transitions : The number of transitions in the Markov
-    chain. The number of states of the Markov chain is sqrt(num_transitions).
+    num_transitions : The number of transitions in the Markov chain. The number
+    of states of the Markov chain is sqrt(num_transitions). len(counts) =
+    num_transitions
 
     state_totals : The total of counts leaving from the particular
     state of the Markov chain. len(state_totals) is equal to the
@@ -38,48 +46,61 @@ class MarkovChain(object):
     method `get_state_totals`.
 
     params : The average value of the probability of the transitions
-    assuming a uniform prior. The `i`th entry is interpreted as the
-    probability of the `i`th transition. Can be accessed using the
-    method `get_parameters`.
+    assuming a uniform prior. Stored as a dictionary whose keys are
+    tuples (from_state,to_state). Can be accessed using method 'get_parameters'
 
     std : The standard deviations of the variates of the Dirichlet
-    distributions associated with the Markov chain. The `i`th entry is
-    the standard deviation associated with the `i`th transition
-    parameter. Can be accessed using the method `get_std_dev`.
+    distributions associated with the Markov chain. Stored as a dictionary
+    whose keys are tuples (from_state,to_state). Can be accessed using
+    method 'get_std_dev'
 
     """
 
     def __init__(self, counts):
-        counts = np.array(counts)
         self.counts = counts
+        self.MC = nx.DiGraph()
+        for (from_state,to_state) in counts.keys():
+            self.MC.add_edge(from_state,to_state, count = counts[(from_state,to_state)])
+        #pad 'counts' with zeros and add all missing edges to self.MC
+        for from_state in self.MC.nodes():
+            for to_state in self.MC.nodes():
+                if ((from_state,to_state) not in counts.keys()):
+                    self.MC.add_edge(from_state,to_state,count=0)
+                    counts[(from_state,to_state)] = 0
         self.params = None # probability of transitions
         self.std = None # std. associated with the transitions
         self.state_totals = None #total number of transitions leaving a state
-        self.num_transitions = len(counts)
+        self.num_transitions = (self.MC.number_of_nodes())**2
 
     def compute_prob_params(self,counts):
         """
         Given counts returns the mean, std. dev. for every transition
-        and normalization constant for each state.
+        and normalization constant for each state, and attatches these 
+        values to the edges of the MC.
+
+        It also packs the values into a dictionary (self.params, self.std)
+        whose keys are edges (ordered pairs of states)
         """
         num_transitions  = self.num_transitions
-        l = int(np.sqrt(num_transitions)) # number of states in the MC
-        totals = np.zeros(l)
-        mu = np.zeros(num_transitions)
-        sigma = np.zeros(num_transitions)
-        for c1 in range(l):
-            tot = np.sum(counts[list(range(c1*l, (c1+1)*l ))]) # total counts leaving this state
-            totals[c1] = tot
+        l = self.MC.number_of_nodes()
+        totals = dict()
+        for from_state in self.MC.nodes():
+            tot = sum([counts[(from_state,to_state)] if ((from_state,to_state) in counts.keys()) else 0 for to_state in self.MC.nodes()])
+            totals[from_state] = tot
             if tot > 0:
-                for c2 in range(l):
-                    index = c1*l + c2
+                for to_state in self.MC.nodes():
                     # mean and std. dev of the corresponding beta distribution
-                    p = (counts[index]+1)/(tot+l)
-                    mu[index] = p
-                    sigma[index] = np.sqrt(p*(1-p)/(tot+ (l+1)))
+                    p = (counts[(from_state,to_state)]+1)/(tot+l) if ((from_state,to_state) in counts.keys()) else 1/(tot+l)
+                    self.MC[from_state][to_state]['mu'] = p
+                    self.MC[from_state][to_state]['sigma'] = np.sqrt(p*(1-p)/(tot+ (l+1)))
+            else:
+                for to_state in self.MC.nodes():
+                    p = 1/(tot+l)
+                    self.MC[from_state][to_state]['mu'] = p
+                    self.MC[from_state][to_state]['sigma'] = np.sqrt(p*(1-p)/(tot+ (l+1)))
 
-        self.params = mu
-        self.std = sigma
+        self.params = {(fs,ts):self.MC[fs][ts]['mu'] for (fs,ts) in self.MC.edges()}
+        self.std = {(fs,ts):self.MC[fs][ts]['sigma'] for (fs,ts) in self.MC.edges()}
         self.state_totals = totals
 
 
@@ -110,6 +131,14 @@ class MultiplexMarkovChain(MarkovChain):
     null model for detecting `dynamical spillover` (Insert ref. to
     paper).
 
+    To build an instance of this class, you must provide a dictionary of
+    counts, formatted as for the MarkovChain class. Moreover, states must
+    have the form (layer1,layer2,...,layer_n), specifying the states of
+    the edge in the n layers of the multiplex.
+
+    In particular, keys of the dictionary 'counts' must have the form:
+    ((layer1, layer2, ..., layer_n),(layer1', layer2', ..., layer_n'))
+
     Parameters
     ----------
 
@@ -135,33 +164,33 @@ class MultiplexMarkovChain(MarkovChain):
 
 
     def __init__(self, counts):
+        '''
         num_transitions = len(counts)
         #check if the num_transitions is a power of 2.
         if not _is_power_of_2(num_transitions):
             raise AssertionError("Length of counts is not a power of 2.")
-
+        '''
         MarkovChain.__init__(self, counts)
+        self.counts = counts
+        self.num_layers = len(counts.keys()[0][0])
         self.null_components = None
         self.null_prob = None
         self.null_std = None
 
-
     def _compute_null_counts(self, counts):
         """
-        This function computes the counts for the null model. Currently
-        hard coded for 4 states.
+        This function computes counts for the null model.
         """
-        counts_layer1 = np.zeros(4)
-        counts_layer2 = np.zeros(4)
-        counts_layer1[0] = counts[0] + counts[2] + counts[8] + counts[10]
-        counts_layer1[1] = counts[1] + counts[3] + counts[9] + counts[11]
-        counts_layer1[2] = counts[4] + counts[6] + counts[12] + counts[14]
-        counts_layer1[3] = counts[5] + counts[7] + counts[13] + counts[15]
-        counts_layer2[0] = counts[0] + counts[1] + counts[4] + counts[5]
-        counts_layer2[1] = counts[2] + counts[3] + counts[6] + counts[7]
-        counts_layer2[2] = counts[8] + counts[9] + counts[12] + counts[13]
-        counts_layer2[3] = counts[10] + counts[11] + counts[14] + counts[15]
-        self.null_components = [{"counts":counts_layer1}, {"counts":counts_layer2}]
+        num_layers = self.num_layers
+        null_counts = [dict() for i in range(num_layers)]
+        for (joint_fs,joint_ts) in counts.keys():
+            for layer in range(num_layers):
+                if (joint_fs[layer],joint_ts[layer]) in null_counts[layer].keys():
+                    null_counts[layer][(joint_fs[layer],joint_ts[layer])] += counts[(joint_fs,joint_ts)]
+                else:
+                    null_counts[layer][(joint_fs[layer],joint_ts[layer])] = counts[(joint_fs,joint_ts)]
+
+        self.null_components = [{'counts':null_counts[i]} for i in range(num_layers)]
 
     def compute_prob_null_components(self):
         """
@@ -169,6 +198,8 @@ class MultiplexMarkovChain(MarkovChain):
         describes the evolution of edges on that layer independent of
         the other layers.
         """
+        if self.null_components is None:
+            self._compute_null_counts(self.counts)
         for component in self.null_components:
             component["MC"] = MarkovChain(component["counts"])
 
@@ -181,41 +212,6 @@ class MultiplexMarkovChain(MarkovChain):
         self._compute_null_counts(self.counts)
         self.compute_prob_null_components()
 
-    def get_index_for_null(self, i):
-        if (i == 0):
-            return [0, 0]
-        elif (i == 1):
-            return [1, 0]
-        elif (i == 2):
-            return [0, 1]
-        elif (i == 3):
-            return [1, 1]
-        elif (i == 4):
-            return [2, 0]
-        elif (i == 5):
-            return [3, 0]
-        elif (i == 6):
-            return [2, 1]
-        elif (i == 7):
-            return [3, 1]
-        elif (i == 8):
-            return [0, 2]
-        elif (i == 9):
-            return [1, 2]
-        elif (i == 10):
-            return [0, 3]
-        elif (i == 11):
-            return [1, 3]
-        elif (i == 12):
-            return [2, 2]
-        elif (i == 13):
-            return [3, 2]
-        elif (i == 14):
-            return [2, 3]
-        else:
-            return [3, 3]
-
-
     def compute_null_prob_std(self):
         """
         Computes the null probability using the null components. When
@@ -223,12 +219,24 @@ class MultiplexMarkovChain(MarkovChain):
         beta distributions as a Gaussian distributions.
         """
         num_transitions = self.num_transitions
-        pnull = np.ones(num_transitions)
-        std_null = np.zeros(num_transitions)
+        num_layers = self.num_layers
+        pnull = dict()
+        std_null = dict()
         #If the Gaussian approximation is not justified warn the user
         state_totals = self.get_state_totals()
         if (np.any(state_totals < 100)):
             warn("Some of the state totals are less than 100. Gaussian approximation may not be justified.")
+        
+        component_params = [self.null_components[k]['MC'].get_parameters() for k in range(num_layers)]
+        component_std_dev = [self.null_components[k]['MC'].get_std_dev() for k in range(num_layers)]
+        pnull = {(fs,ts):np.prod([component_params[k][(fs[k],ts[k])] for k in range(num_layers)]) for (fs,ts) in self.MC.edges()}
+        std_null = {(fs,ts):
+        pnull[(fs,ts)]*np.sqrt(
+            np.sum(
+                [(component_std_dev[k][(fs[k],ts[k])]/component_params[k][(fs[k],ts[k])])**2 for k in range(num_layers)]
+                )
+            ) for (fs,ts) in self.MC.edges()}
+        '''
         for i in range(num_transitions):
             indices = self.get_index_for_null(i)
             for j,q in enumerate(indices):
@@ -236,9 +244,10 @@ class MultiplexMarkovChain(MarkovChain):
                 prob = null_component["MC"].get_parameters()[q]
                 sigma = null_component["MC"].get_std_dev()[q]
                 pnull[i] *= prob
-                std_null[i] +=  (sigma/prob)**2
-        std_null = np.sqrt(std_null)
-        std_null = pnull*std_null
+                std_null[i] +=  (sigma/prob)**2 #variance is additive for independent Gaussians
+        std_null = np.sqrt(std_null) #lol
+        '''
+        # std_null = {pnull[k]*std_null[k] for k in pnull.keys()} #wut
         self.null_prob = pnull
         self.null_std = std_null
 
