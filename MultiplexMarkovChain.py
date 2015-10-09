@@ -57,6 +57,14 @@ class MarkovChain(nx.DiGraph):
     """
 
     def __init__(self, counts):
+        if type(counts) is not dict:
+            raise AssertionError("counts must be presented as a dictionary: {transition: count}")
+        elif any([type(k) is not tuple for k in counts.keys()]):
+            raise AssertionError("keys of 'counts' must be tuples: (from_state, to_state)")
+        elif any([len(k) != 2 for k in counts.keys()]):
+            raise AssertionError("keys of 'counts' must be length-2 tuples: (from_state, to_state)")
+        elif any([type(v) is not int for v in counts.values()]):
+            raise AssertionError("values of 'counts' must be integers")
         self.counts = counts
         self.MC = nx.DiGraph()
         for (from_state,to_state) in counts.keys():
@@ -236,18 +244,6 @@ class MultiplexMarkovChain(MarkovChain):
                 [(component_std_dev[k][(fs[k],ts[k])]/component_params[k][(fs[k],ts[k])])**2 for k in range(num_layers)]
                 )
             ) for (fs,ts) in self.MC.edges()}
-        '''
-        for i in range(num_transitions):
-            indices = self.get_index_for_null(i)
-            for j,q in enumerate(indices):
-                null_component = self.null_components[j]
-                prob = null_component["MC"].get_parameters()[q]
-                sigma = null_component["MC"].get_std_dev()[q]
-                pnull[i] *= prob
-                std_null[i] +=  (sigma/prob)**2 #variance is additive for independent Gaussians
-        std_null = np.sqrt(std_null) #lol
-        '''
-        # std_null = {pnull[k]*std_null[k] for k in pnull.keys()} #wut
         self.null_prob = pnull
         self.null_std = std_null
 
@@ -276,3 +272,19 @@ class MultiplexMarkovChain(MarkovChain):
                 self.compute_null_components()
             self.compute_null_prob_std()
         return self.null_std
+
+    def differs_from_null(self):
+        """
+        Returns a dictionary whose keys are transitions
+        and whose values are abs(null_prob - prob)/(std_null + std)
+        """
+
+
+        if self.null_prob is None:
+            if self.null_components is None:
+                self.compute_null_components()
+            self.compute_null_prob_std()
+        if self.params is None:
+            self.compute_prob_params(self.counts)
+
+        return {k:abs(self.params[k]-self.null_prob[k])/(self.std[k]+self.null_std[k]) for k in self.params.keys()}

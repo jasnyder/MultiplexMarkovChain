@@ -75,6 +75,7 @@ def get_counts(g1, g2, method):
     # Now count the numbers for each transition
     counts = dict()
     if g1[0].is_directed():
+        # issue: this only counts one direction of the edge at a time! state should keep track of /both/ directions in an ordered pair
         for node1 in node_set:
             for node2 in node_set: # loop over all ordered pairs
                 prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
@@ -209,5 +210,3 @@ def compute_counts_from_file(fname_edges, fname_nodes=None, method=None):
     counts[timeStepToProcess] = c
     fEdges.close()
     return counts
-
-

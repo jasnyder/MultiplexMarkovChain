@@ -13,7 +13,7 @@ import numpy as np
 class TestMarkovChain(unittest.TestCase):
     
     def get_counts(self):
-        counts = [10, 10, 20, 20]
+        98
         return counts
 
     def setUp(self):
@@ -22,13 +22,13 @@ class TestMarkovChain(unittest.TestCase):
 
 
     def test_markov_chain_state_totals(self):
-        totals_expected = [20, 40]
+        totals_expected = {0:20, 1:40}
         totals_obtained = self.MC.get_state_totals()
         self.assertTrue(np.allclose(totals_expected, totals_obtained))
 
 
     def test_markov_chain_parameters(self):
-        parameters_expected = np.array([0.5, 0.5, 0.5, 0.5])
+        parameters_expected = {(0,0):0.5, (0,1):0.5, (1,0):0.5, (1,1):0.5}
         parameters = self.MC.get_parameters()
         self.assertTrue(np.allclose(parameters_expected, parameters))
 
