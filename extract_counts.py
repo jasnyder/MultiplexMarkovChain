@@ -28,6 +28,9 @@ def get_node_set(g1,g2,method="union"):
     g1 and g2 are n-tuples of graphs, where n is the number of layers
     g1[k] is a graph describing the k-th layer in the multiplex at time t
     g2[k] is the k-th layer at time t+1
+    
+    this is me making minor changes to test out versioning in Github
+
     """
     num_layers = len(g1)
     nodes1 = set()
