@@ -287,4 +287,4 @@ class MultiplexMarkovChain(MarkovChain):
         if self.params is None:
             self.compute_prob_params(self.counts)
 
-        return {k:abs(self.params[k]-self.null_prob[k])/(self.std[k]+self.null_std[k]) for k in self.params.keys()}
+        return {k:(self.params[k]-self.null_prob[k])/(self.std[k]+self.null_std[k]) for k in self.params.keys()}

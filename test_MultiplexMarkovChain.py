@@ -13,7 +13,7 @@ import numpy as np
 class TestMarkovChain(unittest.TestCase):
     
     def get_counts(self):
-        98
+        counts = {(0,0):10 , (0,1):10 , (1,0):20 , (1,1):20}
         return counts
 
     def setUp(self):

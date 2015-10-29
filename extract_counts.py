@@ -18,6 +18,27 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+def node_counts(g1,g2):
+    """
+    Returns a dictionary of node-based transition counts.
+    Currently, the state of a node is computed as a binary vector indicating
+    above/below average activity in each layer.
+    g1 = list of graphs describing the multiplex at one time step
+    g2 = list of graphs describing the multiplex at the next time step
+    """
+    counts = dict()
+    num_layers = len(g1)
+    node_set = get_node_set(g1,g2,method="intersection")
+    mean_degrees1 = [np.mean(nx.degree(g1[k]).values()) for k in range(num_layers)]
+    mean_degrees2 = [np.mean(nx.degree(g2[k]).values()) for k in range(num_layers)]
+    for node in node_set:
+        s1 = tuple(int(nx.degree(g1[k])[node]>mean_degrees1[k]) for k in range(num_layers))
+        s2 = tuple(int(nx.degree(g2[k])[node]>mean_degrees2[k]) for k in range(num_layers))
+        if (s1,s2) in counts.keys():
+            counts[(s1,s2)] += 1
+        else:
+            counts[(s1,s2)] = 1
+    return counts
 
 
 def get_node_set(g1,g2,method="union"):
@@ -55,8 +76,12 @@ def get_counts(g1, g2, method):
     g1 : list of nx graph objects representing the multiplex at time t
     g2 : list of nx graph objects representing the multiplex at time (t+1)
 
-    Each edge of the graph must have an attribute `state` that is set
-    when the graph is constructed.  The output is a dictionary giving
+    OR
+
+    g1 : Multinet instance representing the multiplex at time t
+    g2 : Multinet instance representing the multiplex at time (t+1)
+
+    The output is a dictionary giving
     counts from time t to time (t+1), for each possible pair of joint states.
     non-existence of an edge is coded as 0 by default.
 
@@ -75,11 +100,12 @@ def get_counts(g1, g2, method):
     # Now count the numbers for each transition
     counts = dict()
     if g1[0].is_directed():
-        # issue: this only counts one direction of the edge at a time! state should keep track of /both/ directions in an ordered pair
         for node1 in node_set:
             for node2 in node_set: # loop over all ordered pairs
-                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
-                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                # 'state' codes all interactions between node1 and node2 (both directions)
+                # state[k] is a tuple indicating the state of the dyad in layer k. This tuple can be (0,0),(0,1),(1,0), or (1,1)
+                prev_state = tuple((int(g1[k].has_edge(node1,node2)), int(g1[k].has_edge(node2,node1))) for k in range(num_layers))
+                current_state = tuple((int(g2[k].has_edge(node1,node2)), int(g2[k].has_edge(node2,node1))) for k in range(num_layers))
                 if ((prev_state,current_state) in counts.keys()):
                     counts[(prev_state,current_state)] += 1
                 else:
@@ -87,8 +113,8 @@ def get_counts(g1, g2, method):
     else:
         for index,node1 in enumerate(node_set):
             for node2 in node_set[index+1:]: # loop over all unordered pairs
-                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
-                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                prev_state = tuple(int(g1[k].has_edge(node1,node2)) for k in range(num_layers))
+                current_state = tuple(int(g2[k].has_edge(node1,node2)) for k in range(num_layers))
                 if ((prev_state,current_state) in counts.keys()):
                     counts[(prev_state,current_state)] += 1
                 else:
