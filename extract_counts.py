@@ -8,6 +8,7 @@ chains for the dynamics of edges on a two-layer multiplex network.
 import numpy as np
 import networkx as nx
 import logging
+from Multinet import *
 
 #set up logs
 logger = logging.getLogger("multiplex_markov_chain")
@@ -25,27 +26,39 @@ def get_node_set(g1,g2,method="union"):
     Returns the set of nodes that have to be considered in counting
     transitions of the Markov chains.  The input for the keyword
     argument `method` controls the method used.
-    g1 and g2 are n-tuples of graphs, where n is the number of layers
-    g1[k] is a graph describing the k-th layer in the multiplex at time t
-    g2[k] is the k-th layer at time t+1
     
-    this is me making minor changes to test out versioning in Github
+    Parameters
+    -----------
+    g1 : list of nx graph objects representing the multiplex at time t
+    g2 : list of nx graph objects representing the multiplex at time (t+1)
+
+    OR
+
+    g1 : Multinet instance representing the multiplex at time t
+    g2 : Multinet instance representing the multiplex at time (t+1)
 
     """
-    num_layers = len(g1)
-    nodes1 = set()
-    nodes2 = set()
-    for k in range(num_layers):
-        for n in g1[k].nodes():
-            nodes1.add(n)
-        for n in g2[k].nodes():
-            nodes2.add(n)
-    if (method=="intersection"):
-        node_set = list(nodes1 & nodes2)
+    if type(g1) is not Multinet:
+        num_layers = len(g1)
+        nodes1 = set()
+        nodes2 = set()
+        for k in range(num_layers):
+            for n in g1[k].nodes():
+                nodes1.add(n)
+            for n in g2[k].nodes():
+                nodes2.add(n)
+        if (method=="intersection"):
+            node_set = list(nodes1 & nodes2)
+        else:
+            node_set = list(nodes1 | nodes2)
+        
+        return node_set
     else:
-        node_set = list(nodes1 | nodes2)
-    
-    return node_set
+        if (method=="intersection"):
+            node_set = list(set(g1.nodes()) & set(g2.nodes()))
+        else:
+            node_set = list(set(g1.nodes()) | set(g2.nodes()))
+        return node_set
     
 
 def get_counts(g1, g2, method):
@@ -58,14 +71,12 @@ def get_counts(g1, g2, method):
     g1 : list of nx graph objects representing the multiplex at time t
     g2 : list of nx graph objects representing the multiplex at time (t+1)
 
-    Each edge of the graph must have an attribute `state` that is set
-    when the graph is constructed.  The output is a dictionary giving
-    counts from time t to time (t+1), for each possible pair of joint states.
-    non-existence of an edge is coded as 0 by default.
+    OR [UNSUPPORTED RIGHT NOW]
 
-    method : When the set of nodes in g1 is not the same as g2, the
-    `method` to be used to find a common set of nodes. Accepts two
-    values union or intersect.
+    g1 : Multinet instance representing the multiplex at time t
+    g2 : Multinet instance representing the multiplex at time (t+1)
+
+    method : When the set of nodes in g1 is not the same as g2, the `method` to be used to find a common set of nodes. Accepts two values, union or intersect.
 
     Returns
     -------
@@ -78,11 +89,12 @@ def get_counts(g1, g2, method):
     # Now count the numbers for each transition
     counts = dict()
     if g1[0].is_directed():
-        # issue: this only counts one direction of the edge at a time! state should keep track of /both/ directions in an ordered pair
         for node1 in node_set:
             for node2 in node_set: # loop over all ordered pairs
-                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
-                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                # 'state' codes all interactions between node1 and node2 (both directions)
+                # state[k] is a tuple indicating the state of the dyad in layer k. This tuple can be (0,0),(0,1),(1,0), or (1,1)
+                prev_state = tuple((int(g1[k].has_edge(node1,node2)), int(g1[k].has_edge(node2,node1))) for k in range(num_layers))
+                current_state = tuple((int(g2[k].has_edge(node1,node2)), int(g2[k].has_edge(node2,node1))) for k in range(num_layers))
                 if ((prev_state,current_state) in counts.keys()):
                     counts[(prev_state,current_state)] += 1
                 else:
@@ -90,12 +102,52 @@ def get_counts(g1, g2, method):
     else:
         for index,node1 in enumerate(node_set):
             for node2 in node_set[index+1:]: # loop over all unordered pairs
-                prev_state = tuple((g1[k][node1][node2]['state'] if g1[k].has_edge(node1,node2) else 0) for k in range(num_layers))
-                current_state = tuple((g2[k][node1][node2]['state'] if g2[k].has_edge(node1,node2) else 0) for k in range(num_layers))
+                prev_state = tuple(int(g1[k].has_edge(node1,node2)) for k in range(num_layers))
+                current_state = tuple(int(g2[k].has_edge(node1,node2)) for k in range(num_layers))
                 if ((prev_state,current_state) in counts.keys()):
                     counts[(prev_state,current_state)] += 1
                 else:
                     counts[(prev_state,current_state)] = 1
+    return counts
+
+def get_node_counts(g1, g2, method = "intersection", AbsentSymbol = 0):
+    """
+    Computes node-based transitions, reading "state" data from each node.
+
+    Parameters
+    -----------
+    g1 : list of nx graph objects representing the multiplex at time t
+    g2 : list of nx graph objects representing the multiplex at time (t+1)
+
+    OR [UNSUPPORTED RIGHT NOW]
+
+    g1 : Multinet instance representing the multiplex at time t
+    g2 : Multinet instance representing the multiplex at time (t+1)
+
+    method : str ("union" or "intersection") decides whether to take nodes present at both time steps or at either time step
+
+    AbsentSymbol : state to assign to nodes that don't appear in a given layer (default 0)
+
+    Returns
+    --------
+    counts : dictionary whose keys are transitions (prev_state,current_state) and whose values are the number of nodes that were observed to undergo that transition. If a node does not exist in a particular layer, its 'state' in that layer is set to 0 by default
+
+    Note: To use this routine for Multiplex Markov Chain modeling, the "state" of each node should be a vector with length equal to the number of layers in the multiplex, and each component should refer to a property in a single layer. This routine may be of general use in studying dynamics of node-based network data
+
+    """
+    node_set = get_node_set(g1,g2,method)
+    counts = dict()
+    num_layers = len(g1)
+
+    prev_states = [nx.get_node_attributes(g1[k],'state') for k in range(num_layers)]
+    current_states = [nx.get_node_attributes(g2[k],'state') for k in range(num_layers)]
+    for node in node_set:
+        prev_state = tuple(prev_states[k][node] if node in g1[k].nodes() else AbsentSymbol for k in range(num_layers))
+        current_state = tuple(current_states[k][node] if node in g2[k].nodes() else AbsentSymbol for k in range(num_layers))
+        if (prev_state,current_state) in counts.keys():
+            counts[(prev_state,current_state)] += 1
+        else:
+            counts[(prev_state,current_state)] = 1
     return counts
 
 

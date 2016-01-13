@@ -275,8 +275,7 @@ class MultiplexMarkovChain(MarkovChain):
 
     def differs_from_null(self):
         """
-        Returns a dictionary whose keys are transitions
-        and whose values are abs(null_prob - prob)/(std_null + std)
+        Returns Kullback-Leibler divergence between the empirical and null distributions
         """
 
 
@@ -287,4 +286,16 @@ class MultiplexMarkovChain(MarkovChain):
         if self.params is None:
             self.compute_prob_params(self.counts)
 
-        return {k:abs(self.params[k]-self.null_prob[k])/(self.std[k]+self.null_std[k]) for k in self.params.keys()}
+        K = self.params.keys()
+
+        initial_probs = dict()
+        for (fs,ts) in K:
+            if fs in initial_probs.keys():
+                initial_probs[fs] += self.params[(fs,ts)]
+            else:
+                initial_probs[fs] = self.params[(fs,ts)]
+
+        Q = [initial_probs[fs]*self.null_prob[(fs,ts)] for (fs,ts) in K]
+        P = [initial_probs[fs]*self.params[(fs,ts)] for (fs,ts) in K]
+
+        return sum([p*np.log2(p/q) for (p,q) in zip(P,Q)])
