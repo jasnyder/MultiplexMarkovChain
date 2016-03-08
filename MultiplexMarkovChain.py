@@ -13,7 +13,7 @@ import networkx as nx
 from warnings import warn
 
 
-class MarkovChain(nx.DiGraph):
+class MarkovChain(object):
     """
     Instances of this class contain NetworkX DiGraph objects, whose edges have
     attributes "counts" and "params", giving observed counts of transitions
