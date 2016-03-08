@@ -99,6 +99,10 @@ def get_counts(g1, g2, method):
     num_layers = len(g1)
     # Now count the numbers for each transition
     counts = dict()
+    import itertools
+    for transition in itertools.product(itertools.product(range(2),repeat=2),repeat=2):
+        counts[transition] = 0
+    
     if g1[0].is_directed():
         for node1 in node_set:
             for node2 in node_set: # loop over all ordered pairs
